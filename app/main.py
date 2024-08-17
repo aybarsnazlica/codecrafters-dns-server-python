@@ -1,5 +1,7 @@
 import socket
 
+from .dns import DNSHeader
+
 
 def main():
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -9,7 +11,22 @@ def main():
         try:
             buf, source = udp_socket.recvfrom(512)
 
-            response = b""
+            header = DNSHeader(
+                id=1234,
+                qr=1,
+                opcode=0,
+                aa=0,
+                tc=0,
+                rd=0,
+                ra=0,
+                rcode=0,
+                qdcount=0,
+                ancount=0,
+                nscount=0,
+                arcount=0,
+            )
+
+            response = header.encode()
 
             udp_socket.sendto(response, source)
         except Exception as e:
