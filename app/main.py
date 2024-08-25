@@ -10,6 +10,7 @@ def main():
     while True:
         try:
             buf, source = udp_socket.recvfrom(512)
+            question_section = buf[12:]
 
             header = DNSHeader(
                 id=1234,
@@ -26,7 +27,9 @@ def main():
                 arcount=0,
             )
 
+            header.qdcount += 1
             response = header.encode()
+            response += question_section
 
             udp_socket.sendto(response, source)
         except Exception as e:
