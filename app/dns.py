@@ -16,6 +16,39 @@ class DNSHeader:
     nscount: int  # authority record count (16 bits)
     arcount: int  # additional record count (16 bits)
 
+    @classmethod
+    def from_bytes(cls, data: bytes) -> 'DNSHeader':
+        _id = int.from_bytes(data[0:2], 'big')
+        flags = int.from_bytes(data[2:4], 'big')
+        qdcount = int.from_bytes(data[4:6], 'big')
+        ancount = int.from_bytes(data[6:8], 'big')
+        nscount = int.from_bytes(data[8:10], 'big')
+        arcount = int.from_bytes(data[10:12], 'big')
+
+        # Extract individual flag bits
+        qr = (flags >> 15) & 0x1
+        opcode = (flags >> 11) & 0xF
+        aa = (flags >> 10) & 0x1
+        tc = (flags >> 9) & 0x1
+        rd = (flags >> 8) & 0x1
+        ra = (flags >> 7) & 0x1
+        rcode = flags & 0xF
+
+        return cls(
+            id=_id,
+            qr=qr,
+            opcode=opcode,
+            aa=aa,
+            tc=tc,
+            rd=rd,
+            ra=ra,
+            rcode=rcode,
+            qdcount=qdcount,
+            ancount=ancount,
+            nscount=nscount,
+            arcount=arcount,
+        )
+
     def encode(self) -> bytes:
         # First byte (qr, opcode, aa, tc, rd)
         byte1 = (
