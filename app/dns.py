@@ -2,94 +2,93 @@ from dataclasses import dataclass
 
 
 @dataclass
+class DNSQuestion:
+    name: str
+    qtype: int
+    qclass: int = 1
+
+    def to_bytes(self) -> bytes:
+        name = self.name.split(".")
+        result = b""
+        for label in name:
+            result += len(label).to_bytes(1, byteorder="big")
+            result += label.encode()
+        result += b"\x00"
+        result += self.qtype.to_bytes(2, byteorder="big")
+        result += self.qclass.to_bytes(2, byteorder="big")
+        return result
+
+
+@dataclass
 class DNSHeader:
-    id: int  # packet identifier (16 bits)
-    qr: int  # query/response indicator (1 bit)
-    opcode: int  # operation code (4 bits)
-    aa: int  # authoritative answer (1 bit)
-    tc: int  # truncation (1 bit)
-    rd: int  # recursion desired (1 bit)
-    ra: int  # recursion available (1 bit)
-    rcode: int  # response code (4 bits)
-    qdcount: int  # question count (16 bits)
-    ancount: int  # answer record count (16 bits)
-    nscount: int  # authority record count (16 bits)
-    arcount: int  # additional record count (16 bits)
+    id: int
+    qr: int = 0  # Query/Response Flag
+    opcode: int = 0  # Opcode (0 for standard query)
+    aa: int = 0  # Authoritative Answer Flag
+    tc: int = 0  # Truncation Flag
+    rd: int = 1  # Recursion Desired Flag
+    ra: int = 0  # Recursion Available Flag
+    z: int = 0  # Reserved
+    rcode: int = 0  # Response Code
+    qdcount: int = 0  # Number of questions
+    ancount: int = 0  # Number of answers
+    nscount: int = 0  # Number of authority records
+    arcount: int = 0  # Number of additional records
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> 'DNSHeader':
-        _id = int.from_bytes(data[0:2], 'big')
-        flags = int.from_bytes(data[2:4], 'big')
-        qdcount = int.from_bytes(data[4:6], 'big')
-        ancount = int.from_bytes(data[6:8], 'big')
-        nscount = int.from_bytes(data[8:10], 'big')
-        arcount = int.from_bytes(data[10:12], 'big')
-
-        # Extract individual flag bits
-        qr = (flags >> 15) & 0x1
+    def from_bytes(cls, data: bytes):
+        id = int.from_bytes(data[0:2], byteorder='big')
+        flags = int.from_bytes(data[2:4], byteorder='big')
+        qr = (flags >> 15) & 1
         opcode = (flags >> 11) & 0xF
-        aa = (flags >> 10) & 0x1
-        tc = (flags >> 9) & 0x1
-        rd = (flags >> 8) & 0x1
-        ra = (flags >> 7) & 0x1
+        aa = (flags >> 10) & 1
+        tc = (flags >> 9) & 1
+        rd = (flags >> 8) & 1
+        ra = (flags >> 7) & 1
+        z = (flags >> 4) & 0x7
         rcode = flags & 0xF
-
-        return cls(
-            id=_id,
-            qr=qr,
-            opcode=opcode,
-            aa=aa,
-            tc=tc,
-            rd=rd,
-            ra=ra,
-            rcode=rcode,
-            qdcount=qdcount,
-            ancount=ancount,
-            nscount=nscount,
-            arcount=arcount,
-        )
+        qdcount = int.from_bytes(data[4:6], byteorder='big')
+        ancount = int.from_bytes(data[6:8], byteorder='big')
+        nscount = int.from_bytes(data[8:10], byteorder='big')
+        arcount = int.from_bytes(data[10:12], byteorder='big')
+        return cls(id, qr, opcode, aa, tc, rd, ra, z, rcode, qdcount, ancount, nscount, arcount)
 
     def encode(self) -> bytes:
-        # First byte (qr, opcode, aa, tc, rd)
-        byte1 = (
-                (self.qr << 7)
-                | (self.opcode << 3)
-                | (self.aa << 2)
-                | (self.tc << 1)
-                | self.rd
+        flags = (
+                (self.qr << 15) |
+                (self.opcode << 11) |
+                (self.aa << 10) |
+                (self.tc << 9) |
+                (self.rd << 8) |
+                (self.ra << 7) |
+                (self.z << 4) |
+                self.rcode
         )
-
-        # Second byte (ra, rz, rcode)
-        byte2 = (self.ra << 7) | self.rcode
-
-        # Convert everything to bytes
         return (
-                self.id.to_bytes(2, "big")  # ID is 16 bits
-                + byte1.to_bytes(1, "big")  # 1 byte for qr, opcode, aa, tc, rd
-                + byte2.to_bytes(1, "big")  # 1 byte for ra, rz, rcode
-                + self.qdcount.to_bytes(2, "big")
-                + self.ancount.to_bytes(2, "big")
-                + self.nscount.to_bytes(2, "big")
-                + self.arcount.to_bytes(2, "big")
+                self.id.to_bytes(2, byteorder="big") +
+                flags.to_bytes(2, byteorder="big") +
+                self.qdcount.to_bytes(2, byteorder="big") +
+                self.ancount.to_bytes(2, byteorder="big") +
+                self.nscount.to_bytes(2, byteorder="big") +
+                self.arcount.to_bytes(2, byteorder="big")
         )
 
 
 @dataclass
 class DNSAnswer:
-    name: bytes  # Encoded domain name as label sequence
-    _type: int  # Type of the record (e.g., 1 for A record)
-    _class: int  # Class of the record (e.g., 1 for IN)
-    ttl: int  # Time-To-Live
-    rdlength: int  # Length of the RDATA field
-    rdata: bytes  # RDATA, e.g., the IP address for A record
+    name: bytes
+    _type: int
+    _class: int
+    ttl: int
+    rdlength: int
+    rdata: bytes
 
     def encode(self) -> bytes:
-        # Convert fields to bytes and concatenate them
         return (
-                self.name  # Name as label sequence
-                + self._type.to_bytes(2, "big")  # Type (2 bytes)
-                + self._class.to_bytes(2, "big")  # Class (2 bytes)
-                + self.ttl.to_bytes(4, "big")  # TTL (4 bytes)
-                + self.rdlength.to_bytes(2, "big")  # RDLENGTH (2 bytes)
-                + self.rdata  # RDATA (e.g., IP address for A record, 4 bytes)
+                self.name +
+                self._type.to_bytes(2, byteorder="big") +
+                self._class.to_bytes(2, byteorder="big") +
+                self.ttl.to_bytes(4, byteorder="big") +
+                self.rdlength.to_bytes(2, byteorder="big") +
+                self.rdata
         )

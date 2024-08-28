@@ -1,6 +1,5 @@
 import socket
-
-from .dns import DNSHeader, DNSAnswer
+from .dns import *
 
 
 def main():
@@ -10,37 +9,62 @@ def main():
     while True:
         try:
             buf, source = udp_socket.recvfrom(512)
-            header = DNSHeader.from_bytes(buf[:12])
+            header = DNSHeader.from_bytes(buf)
+            header.qr = 1  # This is a response
+            header.rcode = 4
+            header.ancount = header.qdcount  # Number of answers will match the number of queries
 
-            header.qr = 1  # Set QR to indicate a response
-            header.aa = 0  # Not authoritative
-            header.tc = 0  # Not truncated
-            header.ra = 0  # Recursion not available
-            header.rcode = 0 if header.opcode == 0 else 4  # No error or not implemented
-            header.ancount = 1  # Assuming 1 answer for simplicity
-            header.nscount = 0
-            header.arcount = 0
+            questions = []
+            offset = 12
+
+            for _ in range(header.qdcount):
+                qname, offset = decompress_labels(buf, offset)
+                qtype = int.from_bytes(buf[offset:offset + 2], byteorder="big")
+                qclass = int.from_bytes(buf[offset + 2:offset + 4], byteorder="big")
+                offset += 4
+                questions.append(DNSQuestion(qname, qtype, qclass))
 
             response = header.encode()
 
-            question_section = buf[12:]
-            response += question_section
+            for question in questions:
+                response += question.to_bytes()
 
-            domain_name = question_section[:-4]  # Exclude the type and class
-            answer = DNSAnswer(
-                name=domain_name,  # Use the domain name from the query
-                _type=1,  # A record
-                _class=1,  # IN (Internet)
-                ttl=60,  # TTL of 60 seconds
-                rdlength=4,  # Length of the RDATA (IPv4 address)
-                rdata=b'\x08\x08\x08\x08'  # IP address 8.8.8.8
-            )
-            response += answer.encode()
+            for question in questions:
+                if question.qtype == 1 and question.qclass == 1:  # Only handle A records in IN class
+                    answer = DNSAnswer(
+                        name=question.to_bytes()[:-4],  # Exclude QTYPE and QCLASS
+                        _type=1,  # A record
+                        _class=1,  # IN class
+                        ttl=60,  # TTL
+                        rdlength=4,  # IPv4 address length
+                        rdata=b'\x08\x08\x08\x08'  # Example IP address 8.8.8.8
+                    )
+                    response += answer.encode()
+
             udp_socket.sendto(response, source)
 
         except Exception as e:
-            print(f"Error receiving data: {e}")
+            print(f"Error: {e}")
             break
+
+
+def decompress_labels(buf, offset):
+    labels = []
+    while True:
+        length = buf[offset]
+        if length == 0:
+            offset += 1
+            break
+        if length & 0xC0 == 0xC0:  # Pointer
+            pointer = int.from_bytes(buf[offset:offset + 2], byteorder="big") & 0x3FFF
+            labels.append(decompress_labels(buf, pointer)[0])
+            offset += 2
+            break
+        else:
+            offset += 1
+            labels.append(buf[offset:offset + length].decode())
+            offset += length
+    return ".".join(labels), offset
 
 
 if __name__ == "__main__":
